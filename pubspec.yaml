@@ -6,7 +6,7 @@ repository: https://github.com/andrelp/canny_edge_detection.git
 homepage: https://github.com/andrelp/canny_edge_detection
 
 environment:
-  sdk: '>=1.0.0 <3.0.0'
+  sdk: '>=1.8.0 <3.0.0'
 
 dependencies:
   image: ^2.1.11
