@@ -1,7 +1,12 @@
+/*
+* Author: Andre Poncelet <andre.leon.poncelet@gmail.com>
+*/
 import 'dart:collection';
 import 'dart:math' as math;
 import 'package:image/image.dart';
 
+/// This class represents an immutable 2-Tuple for integers.
+/// It represents two dimentional indices (for pixels in an image).
 class Index2d {
   final int x, y;
   const Index2d(this.x,this.y);
@@ -12,6 +17,19 @@ class Index2d {
   int get hashCode => x.hashCode | y.hashCode;
 }
 
+/// Detects edges on a given image using the canny edge detection algorithm.
+/// This function changes the input image and stores a visualized result of
+/// cannys edge detection algorithm in it after this function terminatates.
+/// If you dont want your image object to be changed, call image.clone()
+/// Canny edge detection is a multi stage algotithm. After each stage, the
+/// resulting image can be viewed by utilizing [onGrayConvertion], 
+/// [onBlur], [onSobel], [onNonMaxSuppressed] and [onImageResult] methods.
+/// Do not change any pixels of the images of the intermediate steps, because
+/// they are needed for the following steps. If you want to use the images
+/// of the intermediate steps use image.clone()!
+/// This function returns a set of all found edges, where an edge is a set 
+/// of edge-indicating pixels which are connected along the direction of
+/// the edge.
 Set<Set<Index2d>> canny(
   Image image, {
   int blurRadius = 2,
@@ -27,7 +45,7 @@ Set<Set<Index2d>> canny(
   //<Convert colored image to grayscale data>
   grayscale(image);
   if (onGrayConvertion!=null) onGrayConvertion(image);
-
+  
   //<Blur image in order to smooth out noise>
   //do not blur if blurVariance is null
   if (blurRadius != null) {
@@ -122,6 +140,10 @@ Set<Set<Index2d>> canny(
 
   //<Double threshold and hysteresis>
   //first determine threshold values
+  //if only lowThreshold value is given, highThreshold is set to its double
+  //if only highThreshold value is given, lowThreshold is set to its half
+  //if neither threshold values are given, a high threshold value is calculated
+  //by otsus method and the lowThreshold value is set to its half
   if (lowThreshold == null && highThreshold == null) {
     highThreshold = _otsusMethod(image);
     lowThreshold = highThreshold ~/ 2;
@@ -151,6 +173,11 @@ Set<Set<Index2d>> canny(
   //same label as all pixels it is connected to along its edge direction
   //a background label will be supressed and a foreground label will not be suppressed
   //if and only if it is in the same region (same label) as a strong edge
+
+  //The image is analyzed component wise, that is, if a (new) connected region is found
+  //(two neighbouring pixels are connected if one of their edge direction implies that)
+  //then the whole connected region is explored and labelled under the same unique label
+  //before continuing analyzing the image in a canoncial order
   for (var y = 0; y < image.height; ++y) {
     for (var x = 0; x < image.width; ++x) {
       //if current pixel is not weak, label it with 1
@@ -224,6 +251,8 @@ Set<Set<Index2d>> canny(
     }
   }
 
+  //supress all weak edges which are neither strong nor
+  //lie in the same region as a strong edge
   nonEdges.forEach((w) {
     image.setPixelRgba(w.x, w.y, 0,0,0);
   });
@@ -233,44 +262,50 @@ Set<Set<Index2d>> canny(
   return edges;
 }
 
-
-int _otsusMethod(Image gray) {
+/// Calculates a luminace threshold for an given input image 
+/// which seperates the imgages pixels in two classes
+/// (background and foreground), so that the intra-class variance
+/// of the two foreground and background classes in minimized
+int _otsusMethod(Image image) {
   //create histogramm of image gray values
   List<int> histogramm = List.filled(256, 0);
-  for (var y = 0; y < gray.height; ++y) {
-    for (var x = 0; x < gray.width; ++x) {
-      histogramm[getRed(gray.getPixel(x, y))]++;
+  for (var y = 0; y < image.height; ++y) {
+    for (var x = 0; x < image.width; ++x) {
+      histogramm[getLuminance(image.getPixel(x, y))]++;
+    }
+  }
+  final int imageDimension = image.width * image.height;
+  
+  int bestThreshold;
+  double maxBetweenClassVariance;
+
+  for (var currentThreshold = 1; currentThreshold < 255; ++currentThreshold) {
+    //helper values
+    final int bakground_sum = histogramm.sublist(0,currentThreshold).fold(0, (a,b)=>a+b);
+    final int foreground_sum = imageDimension - bakground_sum;
+
+    //calculate Weights
+    final double background_weight = bakground_sum / imageDimension;
+    final double foreground_weight = 1 - background_weight;
+
+    //calculate mean
+    double background_mean = 0;
+    for (var i = 0; i < currentThreshold; ++i) background_mean += i * histogramm[i];
+    background_mean /= bakground_sum;
+
+    double foreground_mean = 0;
+    for (var i = currentThreshold; i < 256; ++i) foreground_mean += i * histogramm[i];
+    foreground_mean /= foreground_sum;
+
+    //calculate between class variance
+    final double currentBetweenClassVariance
+    = background_weight*foreground_weight * math.pow(background_mean-foreground_mean, 2);
+
+    if (maxBetweenClassVariance == null || currentBetweenClassVariance > maxBetweenClassVariance) {
+      bestThreshold = currentThreshold;
+      maxBetweenClassVariance = currentBetweenClassVariance;
     }
   }
 
-  int threshold = 0;
-  double sigma_b;
-
-  int w0,w1;
-  double m0,m1;
-  w0 = gray.width * gray.height;
-  w1 = 0;
-
-  //exhaustive search which threshold candidate maximizes
-  //inter class variance
-  for (var t = 0; t < 256; ++t) {
-    w0 -= histogramm[t];
-    w1 += histogramm[t];
-    m0 = 0; m1 = 0;
-    for (var i = 1; i <= t; ++i) {
-      m0 += i * histogramm[i];
-    }
-    m0 /= w0;
-    for (var i = t+1; i < 256; ++i) {
-      m1 += i * histogramm[i];
-    }
-    m1 /= w1;
-
-    double sigma_b_new = w0*w1*math.pow(m0-m1, 2);
-    if (sigma_b == null || sigma_b_new > sigma_b) {
-      threshold = t;
-      sigma_b = sigma_b_new;
-    }
-  }
-  return threshold;
+  return bestThreshold;
 }

@@ -10,7 +10,7 @@ void main() {
   Image image = decodeImage(File("test_input.png").readAsBytesSync());
   canny(
     image,
-    blurRadius: 1,
+    blurRadius: 2,
     onGrayConvertion: safeImageCallBack("test_outputA.png"),
     onBlur: safeImageCallBack("test_outputB.png"),
     onSobel: safeImageCallBack("test_outputC.png"),
@@ -18,3 +18,4 @@ void main() {
   );
   File("test_outputEndResult.png").writeAsBytesSync(encodePng(image));
 }
+
