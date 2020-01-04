@@ -12,3 +12,7 @@ doc/api/
 
 # Local editor specific files
 .vscode/
+
+
+*input*.png
+*output*.png
