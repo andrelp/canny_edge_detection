@@ -1,8 +1,18 @@
+import 'dart:collection';
 import 'dart:math' as math;
 import 'package:image/image.dart';
 
+class Index2d {
+  final int x, y;
+  const Index2d(this.x,this.y);
 
-void canny(
+  @override
+  bool operator == (dynamic other) => other is Index2d && other.x == x && other.y == y;
+  @override
+  int get hashCode => x.hashCode | y.hashCode;
+}
+
+Set<Set<Index2d>> canny(
   Image image, {
   int blurRadius = 2,
   int lowThreshold,
@@ -10,22 +20,23 @@ void canny(
   void Function(Image image) onGrayConvertion,
   void Function(Image image) onBlur,
   void Function(Image image) onSobel,
-  void Function(Image image) onNonMaxSuppressed
+  void Function(Image image) onNonMaxSuppressed,
+  void Function(Image image) onImageResult,
   }
 ) {
-  //Convert colored image to grayscale data
+  //<Convert colored image to grayscale data>
   grayscale(image);
   if (onGrayConvertion!=null) onGrayConvertion(image);
 
-  //Blur image in order to smooth out noise
+  //<Blur image in order to smooth out noise>
   //do not blur if blurVariance is null
   if (blurRadius != null) {
     gaussianBlur(image, blurRadius);
     if (onBlur!=null) onBlur(image);
   }
 
-  //Apply Sobel convolution on Image
-  //and safe orientation of edge
+  //<Apply Sobel convolution on Image>
+  //and safe orientation of edges
   Image sobel = Image(image.width, image.height);
   Image edge_direction = Image(image.width, image.height);
 
@@ -59,40 +70,58 @@ void canny(
         //0 deg
         edge_direction.setPixel(x, y, 0);
       }
+      //0 degrees describes a vertical edge and with
+      //increasing degrees the edge is going counter-clockwise
     }
   }
   if (onSobel!=null) onSobel(sobel);
 
-  //non-maximum suppression
+  //helper function to determine neighbours of an edge
+  Set<Index2d> Function(int x, int y) getNeighbours = (x,y) {
+    int direction = edge_direction.getPixel(x, y);
+    Set<Index2d> nei = Set();
+    switch(direction) {
+      case 0:
+        if (y > 0) nei.add(Index2d(x,y-1));
+        if (y < image.height-1) nei.add(Index2d(x,y+1));
+        break;
+      case 45:
+        if (x > 0 && y > 0) nei.add(Index2d(x-1,y-1));
+        if (x < image.width-1 && y < image.height-1) nei.add(Index2d(x+1,y+1));
+        break;
+      case 90:
+        if (x > 0) nei.add(Index2d(x-1,y));
+        if (x < image.width-1) nei.add(Index2d(x+1,y));
+        break;
+      case 135:
+        if (y > 0 && x < image.width-1) nei.add(Index2d(x+1,y-1));
+        if (x > 0 && y < image.height-1) nei.add(Index2d(x-1,y+1));
+        break;
+    }
+    return nei;
+  };
+
+  //<non-maximum suppression>
   for (var y = 0; y < image.height; ++y) {
     for (var x = 0; x < image.width; ++x) {
-      int p1,p2,p3,d;
-      p1 = getRed(sobel.getPixel(x, y));
-      d  = edge_direction.getPixel(x, y);
-      if (d == 0) {
-        p2 = getSafe(x-1,y,sobel);
-        p3 = getSafe(x+1,y,sobel);
-      } else if (d == 45) {
-        p2 = getSafe(x+1,y-1,sobel);
-        p3 = getSafe(x-1,y+1,sobel);
-      } else if (d == 90) {
-        p2 = getSafe(x,y-1,sobel);
-        p3 = getSafe(x,y+1,sobel);
-      } else if (d == 135) {
-        p2 = getSafe(x-1,y-1,sobel);
-        p3 = getSafe(x+1,y+1,sobel);
-      }
+      int p = getRed(sobel.getPixel(x, y));
+      Set<Index2d> nei = getNeighbours(x,y);
+      int max = nei.fold(p, (t,i) {
+        int pnew = getRed(sobel.getPixel(i.x, i.y));
+        return t > pnew ? t : pnew;
+      });
       //supress value if not maximum
-      if (p1 >= p2 && p1 >= p3) {
-        image.setPixelRgba(x, y, p1, p1, p1);
-      } else {
+      if (max > p) {
         image.setPixelRgba(x, y, 0, 0, 0);
+      } else {
+        image.setPixelRgba(x, y, p, p, p);
       }
     }
   }
   if (onNonMaxSuppressed!=null) onNonMaxSuppressed(image);
 
-  //Double threshold and hysteresis
+  //<Double threshold and hysteresis>
+  //first determine threshold values
   if (lowThreshold == null && highThreshold == null) {
     highThreshold = _otsusMethod(image);
     lowThreshold = highThreshold ~/ 2;
@@ -108,27 +137,100 @@ void canny(
     if (lowThreshold > highThreshold) lowThreshold = highThreshold;
   }
 
-  bool Function(int x, int y) shouldSuppress = (x,y) => getSafe(x,y,image) < lowThreshold;
+  //hysteresis by blob analysis
+  bool Function(int x, int y) isWeak = (x,y) => getSafe(x,y,image) >= lowThreshold;
   bool Function(int x, int y) isStrong = (x,y) => getSafe(x,y,image) >= highThreshold;
+  Set<Set<Index2d>> edges = Set();
+  Set<Index2d> nonEdges = Set();
+  int currentLabel = 2;
+  ListQueue<Index2d> currentBlobNeighbours = ListQueue();
+  Image labeledPixels = Image(image.width, image.height);
 
+  //a pixel which is neither weak or strong is considered background and is labeled 1
+  //a pixel which is at least weak is consideres foreground and is labeled with the 
+  //same label as all pixels it is connected to along its edge direction
+  //a background label will be supressed and a foreground label will not be suppressed
+  //if and only if it is in the same region (same label) as a strong edge
   for (var y = 0; y < image.height; ++y) {
     for (var x = 0; x < image.width; ++x) {
-      if (shouldSuppress(x,y)) {
+      //if current pixel is not weak, label it with 1
+      if (!isWeak(x,y)) {
+        //pixel is background
+        labeledPixels.setPixel(x, y, 1);
         image.setPixelRgba(x, y, 0, 0, 0);
         continue;
-      } 
-      if (isStrong(x,y)) {
+      }
+      if (labeledPixels.getPixel(x, y) != 0) {
+        //pixel was already labeled
         continue;
       }
-      if (   isStrong(x-1,y-1) || isStrong(x,y-1) || isStrong(x+1,y-1) 
-          || isStrong(x-1,y)   || isStrong(x+1,y)
-          || isStrong(x-1,y+1) || isStrong(x,y+1) || isStrong(x+1,y+1)) {
-        continue;
+      //pixel is an unlabeled foreground edge
+      currentBlobNeighbours.addLast(Index2d(x, y));
+      bool isStrongEdge = false;
+      Set<Index2d> currentEdge = Set();
+      while (currentBlobNeighbours.isNotEmpty) {
+        Index2d w = currentBlobNeighbours.removeLast();
+        currentEdge.add(w);
+        if (isStrong(w.x,w.y)) {
+          isStrongEdge = true;
+        }
+        labeledPixels.setPixel(w.x, w.y, currentLabel);
+        //get all neighbours of pixel at (w.x,w.y)
+        //a neighbour of a pixel A is one of the two 
+        //pixels along the edge direction of A OR a
+        //pixel B for which A is a pixel along B's
+        //edge direction!
+        //if a neighbour is a foreground pixel and
+        //not already labelled put it in Queue
+        Set<Index2d> symmetricNeighbours = Set();
+        symmetricNeighbours.addAll(getNeighbours(w.x,w.y));
+        if (w.x > 0 && w.y > 0 && getNeighbours(w.x-1,w.y-1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x-1,w.y-1));
+        }
+        if (w.y > 0 && getNeighbours(w.x,w.y-1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x,w.y-1));
+        }
+        if (w.x < image.width-1 && w.y > 0 && getNeighbours(w.x+1,w.y-1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x+1,w.y-1));
+        }
+        if (w.x > 0 && w.y < image.height-1 && getNeighbours(w.x-1,w.y+1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x-1,w.y+1));
+        }
+        if (w.y < image.height-1 && getNeighbours(w.x,w.y+1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x,w.y+1));
+        }
+        if (w.x < image.width-1 && w.y < image.height-1 && getNeighbours(w.x+1,w.y+1).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x+1,w.y+1));
+        }
+        if (w.x > 0 && getNeighbours(w.x-1,w.y).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x-1,w.y));
+        }
+        if (w.x <image.width-1 && getNeighbours(w.x+1,w.y).contains(w)) {
+          symmetricNeighbours.add(Index2d(w.x+1,w.y));
+        }
+        symmetricNeighbours.forEach((neighbour) {
+          //if edge is foreground edge and not yet labbeled
+          if (isWeak(neighbour.x,neighbour.x) && labeledPixels.getPixel(neighbour.x, neighbour.y) == 0) {
+            currentBlobNeighbours.add(neighbour);
+          }
+        });
       }
-      image.setPixelRgba(x, y, 0, 0, 0);
+      if (isStrongEdge) {
+        edges.add(currentEdge);
+      } else {
+        nonEdges.addAll(currentEdge);
+      }
+      currentLabel++;
     }
   }
 
+  nonEdges.forEach((w) {
+    image.setPixelRgba(w.x, w.y, 0,0,0);
+  });
+
+  if (onImageResult != null) onImageResult(image);
+
+  return edges;
 }
 
 
@@ -170,6 +272,5 @@ int _otsusMethod(Image gray) {
       sigma_b = sigma_b_new;
     }
   }
-  print("threshld of $threshold");
   return threshold;
 }

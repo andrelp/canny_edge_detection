@@ -7,14 +7,14 @@ void Function(Image image) safeImageCallBack(String outname) {
 }
 
 void main() {
-  Image image = decodeImage(File("test_A.png").readAsBytesSync());
+  Image image = decodeImage(File("test_input.png").readAsBytesSync());
   canny(
     image,
     blurRadius: 1,
-    onBlur: safeImageCallBack("test_B.png"),
-    onGrayConvertion: safeImageCallBack("test_A.png"),
-    onSobel: safeImageCallBack("test_C.png"),
-    onNonMaxSuppressed: safeImageCallBack("test_D.png")
+    onGrayConvertion: safeImageCallBack("test_outputA.png"),
+    onBlur: safeImageCallBack("test_outputB.png"),
+    onSobel: safeImageCallBack("test_outputC.png"),
+    onNonMaxSuppressed: safeImageCallBack("test_outputD.png")
   );
-  File("test_E.png").writeAsBytesSync(encodePng(image));
+  File("test_outputEndResult.png").writeAsBytesSync(encodePng(image));
 }
