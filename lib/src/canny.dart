@@ -5,31 +5,26 @@ import 'dart:collection';
 import 'dart:math' as math;
 import 'package:image/image.dart';
 
-/// This class represents an immutable 2-Tuple for integers.
-/// It represents two dimentional indices (for pixels in an image).
-class Index2d {
-  final int x, y;
-  const Index2d(this.x,this.y);
-
-  @override
-  bool operator == (dynamic other) => other is Index2d && other.x == x && other.y == y;
-  @override
-  int get hashCode => x.hashCode | y.hashCode;
-}
-
 /// Detects edges on a given image using the canny edge detection algorithm.
 /// This function changes the input image and stores a visualized result of
 /// cannys edge detection algorithm in it after this function terminatates.
-/// If you dont want your image object to be changed, call image.clone()
+/// If you dont want your image object to be changed, call image.clone() beforehand.
 /// Canny edge detection is a multi stage algotithm. After each stage, the
 /// resulting image can be viewed by utilizing [onGrayConvertion], 
-/// [onBlur], [onSobel], [onNonMaxSuppressed] and [onImageResult] methods.
+/// [onBlur], [onSobel], [onNonMaxSuppressed] and [onImageResult] function parameters.
 /// Do not change any pixels of the images of the intermediate steps, because
 /// they are needed for the following steps. If you want to use the images
 /// of the intermediate steps use image.clone()!
 /// This function returns a set of all found edges, where an edge is a set 
 /// of edge-indicating pixels which are connected along the direction of
 /// the edge.
+/// [lowThreshold] and [highThreshold] parameters determine when a possible
+/// edge is defenetly supressed (if signal is lower than [lowThreshold]) and 
+/// when an edge is defenetly preserved (if signal is higher than [highThreshold]).
+/// If at least one of the thresholds are given, the other one is set to its 
+/// double or to its half. If no threshold is given, [highThreshold] is determined
+/// by otsus method which splits an image into two classes (foreground & background)
+/// and [lowThreshold] is set to half of [highThreshold].
 Set<Set<Index2d>> canny(
   Image image, {
   int blurRadius = 2,
@@ -308,4 +303,18 @@ int _otsusMethod(Image image) {
   }
 
   return bestThreshold;
+}
+
+
+
+/// This class represents an immutable 2-Tuple for integers.
+/// It represents two dimentional indices for pixels in an image.
+class Index2d {
+  final int x, y;
+  const Index2d(this.x,this.y);
+
+  @override
+  bool operator == (dynamic other) => other is Index2d && other.x == x && other.y == y;
+  @override
+  int get hashCode => x.hashCode | y.hashCode;
 }
