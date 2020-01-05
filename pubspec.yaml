@@ -1,5 +1,5 @@
 name: canny_edge_detection
-version: 1.0.1
+version: 1.0.2
 description: An edge detection library.
 author: Andre Poncelet <andre.leon.poncelet@gmail.com>
 repository: https://github.com/andrelp/canny_edge_detection.git
@@ -9,4 +9,4 @@ environment:
   sdk: '>=1.8.0 <3.0.0'
 
 dependencies:
-  image: ^2.1.11
+  image: ^2.0.0
