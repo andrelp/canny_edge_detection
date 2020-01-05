@@ -35,6 +35,8 @@ Set<Set<Index2d>> canny(
   void Function(Image image) onSobel,
   void Function(Image image) onNonMaxSuppressed,
   void Function(Image image) onImageResult,
+  bool colorEdges = false,
+  void Function(Image image) onColoredImageResult,
   }
 ) {
   //<Convert colored image to grayscale data>
@@ -253,6 +255,27 @@ Set<Set<Index2d>> canny(
   });
 
   if (onImageResult != null) onImageResult(image);
+
+  if (colorEdges != null && colorEdges) {
+    math.Random randomGen = math.Random();
+    for (Set<Index2d> edge in edges) {
+      //determine random Color
+      int r = randomGen.nextInt(255);
+      int g = randomGen.nextInt(255);
+      int b = randomGen.nextInt(255);
+
+      //Color in edges, but preserve brightness
+      for (Index2d pix in edge) {
+        double lum = getLuminance(image.getPixel(pix.x, pix.y)) / 255;
+        int rlum = (r * lum).floor();
+        int glum = (g * lum).floor();
+        int blum = (b * lum).floor();
+        image.setPixelRgba(pix.x, pix.y, rlum, glum, blum);
+      }
+    }
+
+    if (onColoredImageResult != null) onColoredImageResult(image);
+  }
 
   return edges;
 }
